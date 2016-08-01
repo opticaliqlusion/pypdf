@@ -1,4 +1,4 @@
-# pypdf
+# pypdfparse
 
 A PDF parser built on lex, useful for deep inspection and analysis of PDFs ([1]).
 
