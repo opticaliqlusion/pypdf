@@ -8,6 +8,7 @@ import pdb
 import StringIO
 import pprint
 import string
+import zlib
 
 #
 #   SCANNER
@@ -231,10 +232,19 @@ class PdfTreeTransformer():
     def visit(self, tree):
         return self.visit_generic(tree)
 
-class StreamIterator(PdfTreeVisitor):
+class StreamIterator(PdfTreeTransformer):
     '''For deflating (not crossing) the streams'''
-    def visit_stream(self, node):
-        raise NotImplementedError
+    def visit_obj(self, node):
+
+        try:
+            if node.children[0]['Filter'].value=='/FlateDecode':
+                stream = node.children[1].value
+                node.children[1].value = zlib.decompress(stream[8:-11])
+                print(node.children[1].value)
+                pdb.set_trace()
+        except KeyError:
+            pass
+
         pass
 
 class IDKeyValuePacker(PdfTreeVisitor):
@@ -311,7 +321,7 @@ class PDFTreeNativeTypes(PdfTreeTransformer):
         return retd
 
 #
-#   MAIN
+#   EXAMPLE MAIN
 #
 
 def main():
@@ -324,6 +334,8 @@ def main():
 
     printable = PDFTreePrinter(scanner.tree)
     print(printable)
+
+    StreamIterator().visit(scanner.tree)
 
     return
 
