@@ -1,7 +1,7 @@
 from distutils.core import setup
 setup(
-  name = 'pypdf',
-  packages = ['pypdf'],
+  name = 'pypdfparse',
+  packages = ['pypdfparse'],
   version = '0.1',
   description = 'A PDF inspector',
   author = 'Opticaliqlusion',
