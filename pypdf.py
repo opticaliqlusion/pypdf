@@ -1,6 +1,7 @@
 import os
 import sys
 import platform
+import copy
 from ply import lex
 from ply import yacc
 import pdb
@@ -135,8 +136,6 @@ class PdfScanner():
 
             if res:
                 self.token_stack.append(res)
-
-        pdb.set_trace()
         return
 
     def transform_tokens(self, tokens):
@@ -162,16 +161,67 @@ class PdfScanner():
         self.token_stream = self.transform_tokens(self.token_stream)
         self.parse_token_stream()
 
+        self.tree = {'type':'pdf', 'children':copy.deepcopy(self.token_stack)}
+
+        IDKeyValuePacker().visit(self.tree)
+
         return
+
+#
+#   TREE TRAVERSAL, IN THE STYLE OF AST
+#   you cant always get what you want
+#
+
+class PdfTreeVisitor():
+    def visit_generic(self, node):
+        if 'children' in node.keys():
+            for child in node['children']:
+                try:
+                    handler = getattr(self, 'visit_{0}'.format(child['type']))
+                except AttributeError:
+                    handler = self.visit_generic
+
+                handler(child)
+
+    def visit(self, tree):
+        return self.visit_generic(tree)
+
 #
 #   MAIN
 #
+
+# want to deflate streams?
+class StreamIterator(PdfTreeVisitor):
+    def visit_stream(self, node):
+        raise NotImplementedError
+        pass
+
+# second pass to assign values to /id:value pairs
+class IDKeyValuePacker(PdfTreeVisitor):
+    def visit_dictionary(self, node):
+        new_children = []
+        old_children = copy.deepcopy(node['children'])
+        old_children.reverse()
+
+        while True:
+            try:
+                tok = old_children.pop()
+            except IndexError:
+                break
+            if tok['type'] == 'id':
+                value = old_children.pop()
+                tok['children'] = [ value ]
+            new_children.append(tok)
+
+        node['children'] = new_children
+        pass
 
 def main():
 
     test_data = open(sys.argv[1]).read()
     scanner = PdfScanner(test_data)
 
+    pdb.set_trace()
     return
 
 if __name__ == "__main__":
