@@ -37,161 +37,132 @@ tokens = (
    'TEXT',
 )
 
-literals = [ '%' ]
-t_ignore  = ' \t\r\n'
+class PdfScanner():
 
+    def pdf_lexer(self):
+        t_ignore  = ' \t\r\n'
 
-t_PERCENT   = r'[\x25]'
-t_SPACE     = r'\ '
+        t_BOOL      = r'(true|false)'
+        t_HEX       = r'\<[0-9A-F]*\>'
+        t_LPAREN    = r'\('
+        t_RPAREN    = r'\)'
+        t_FSLASH    = r'/'
+        t_LBRACKET  = r'\['
+        t_RBRACKET  = r'\]'
+        t_LTLT      = r'\<\<'
+        t_GTGT      = r'\>\>'
 
-t_HYPHEN    = r'\-'
-t_EOL       = r'[\r|\n]'
-t_BOOL      = r'(true|false)'
+        t_OBJ = r'obj'
+        t_ENDOBJ = r'endobj'
+        t_KEY_R = r'R'
+        t_KEY_XREF = r'startxref'
+        t_STREAM  = r'stream[\x00-\xFF]+?endstream'
+        t_COMMENT = r'%[\x00-\xFF]+?\r\n'
 
+        def t_HEADER(t):
+            r"%%PDF-\d.\d"
+            return t
 
-t_HEX       = r'\<[0-9A-F]*\>'
-t_LPAREN    = r'\('
-t_RPAREN    = r'\)'
-t_FSLASH    = r'/'
-t_LBRACKET  = r'\['
-t_RBRACKET  = r'\]'
-t_LTLT      = r'\<\<'
-t_GTGT      = r'\>\>'
+        def t_ID(t):
+            r'/[A-Za-z0-9]+'
+            return t
 
+        def t_TEXT(t):
+            r'\(.+\)'
+            return t
 
-t_OBJ = r'obj'
-t_ENDOBJ = r'endobj'
-t_KEY_R = r'R'
-t_KEY_XREF = r'startxref'
-t_STREAM  = r'stream[\x00-\xFF]+?endstream'
-t_COMMENT = r'%[\x00-\xFF]+?\r\n'
+        def t_NUMBER(t):
+            r'[0-9]+(\.)?([0-9]+)?'
+            return t
 
-#def t_REFERENCE(t):
-#    r'[0-9]+ [0-9]+ R'
-#    return t
+        return lex.lex()
 
-def t_HEADER(t):
-    r"%%PDF-\d.\d"
-    return t
+    #
+    #   TREE CONSTRUCTION
+    #
 
-def t_ID(t):
-    r'/[A-Za-z0-9]+'
-    return t
+    def pop_until(self, target_token):
+        children = []
+        while True:
+            try:
+                tok = self.token_stack.pop()
+                if tok['type'] == target_token:
+                    break
+                else:
+                    children.insert(0, tok)
+            except:
+                pdb.set_trace()
+                pass
 
-def t_TEXT(t):
-    r'\(.+\)'
-    return t
+        return children
 
-def t_NUMBER(t):
-    r'[0-9]+(\.)?([0-9]+)?'
-    return t
-#
-#   PARSER
-#
+    def handle_generic(self, token):
+        return token
 
-def p_pdf(t):
-    'pdf : obj_list'
-    t[0] = {'type':'pdf', 'children' : [t[1]] }
-    return t
+    def handle_gtgt(self, token):
+        return { 'type' : 'dictionary', 'children' : self.pop_until('ltlt') }
 
-def p_obj_list(t):
-    '''obj_list : obj_list obj
-                 | obj'''
-    if t.slice[0] == 'item_list':
-        t[0] = {'type':'obj_list', 'children' : t[0]['children'] + [t[1]] }
-    else:
-        t[0] = {'type':'obj_list', 'children' : [t[1]] }
-    return t
+    def handle_rbracket(self, token):
+        return { 'type' : 'array', 'children' : self.pop_until('lbracket') }
 
-def p_obj(t):
-    '''obj : NUMBER NUMBER OBJ item_list ENDOBJ
-           | COMMENT'''
-    if t.slice[1].type == 'COMMENT':
-        pass
-    else:
-        t[0] = {'type' : 'obj', 'children' : [t[1], t[2], t[4]]}
-    pass
+    def handle_endobj(self, token):
 
-def p_item(t):
-    r'''item : dictionary
-             | array
-             | indirect_reference
-             | ID
-             | STREAM
-             | HEX'''
-    t[0] = t[1]
-    pass
+        intermediate_stack = []
+        children = self.pop_until('obj')
+        n1 = self.token_stack.pop()
+        n2 = self.token_stack.pop()
 
-def p_item_list(t):
-    r'''item_list : item_list item
-                  | item'''
-    if t.slice[0] == 'item_list':
-        t[0] = {'type':'item_list', 'children' : t[0]['children'] + [t[1]] }
-    else:
-        t[0] = {'type':'item_list', 'children' : [t[1]] }
-    pass
+        return {'type' : 'obj', 'children':children, 'coords':(n1,n2)}
 
-def p_value_list(t):
-    r'''value_list : value_list value
-                  | value'''
-    if t.slice[0] == 'item_list':
-        t[0] = {'type':'value_list', 'children' : t[0]['children'] + [t[1]] }
-    else:
-        t[0] = {'type':'value_list', 'children' : [t[1]] }
-    pass
+    def get_token(self):
 
-def p_key_value_list(t):
-    r'''key_value_list : key_value_list key_value
-                       | key_value'''
-    if t.slice[0] == 'key_value_list':
-        t[0] = {'type':'key_value_list', 'children' : t[0]['children'] + [t[1]] }
-    else:
-        t[0] = {'type':'key_value_list', 'children' : [t[1]] }
-    pass
+        tok = self.token_stream.pop()
 
-def p_key_value(t):
-    r'''key_value : ID value'''
-    t[0] = t[1]
-    pass
+        try:
+            res = getattr(self,'handle_{0}'.format(tok['type']))(tok)
+        except AttributeError:
+            res = self.handle_generic(tok)
 
-def p_value(t):
-    r'''value : dictionary
-             | array
-             | indirect_reference
-             | NUMBER
-             | HEX
-             | STREAM
-             | TEXT
-             | BOOL
-             | empty'''
-    t[0] = t[1]
-    pass
+        return res
 
-def p_indirect_reference(t):
-    r'''indirect_reference : NUMBER NUMBER KEY_R'''
-    t[0] = {'type':'indirect_reference', 'children' : [t[1], t[2]] }
-    pass
+    def parse_token_stream(self):
 
+        while True:
+            try:
+                res = self.get_token()
+            except IndexError:
+                break
 
-def p_empty(t):
-    r'empty :'
-    pass
+            if res:
+                self.token_stack.append(res)
 
-def p_array(t):
-    r'''array : LBRACKET value_list RBRACKET'''
-    t[0] = {'type':'array', 'children' : t[2] }
-    pass
+        pdb.set_trace()
+        return
 
-def p_dictionary(t):
-    r'''dictionary : LTLT key_value_list GTGT'''
-    t[0] = {'type':'dictionary', 'children' : t[2] }
-    pass
+    def transform_tokens(self, tokens):
+        transformed = []
+        for token in tokens:
+            transformed.append({'type':token.type.lower(), 'value':token.value})
+        return transformed
 
-def p_error(t):
-    print("ERROR: {0}".format(t))
-    pdb.set_trace()
-    pass
+    def __init__(self, input):
 
+        lexer = self.pdf_lexer()
+        lexer.input(input)
+        self.token_stream = []
+        self.token_stack = []
+
+        while True:
+            tok = lexer.token()
+            if not tok:
+                break
+            self.token_stream.append(tok)
+
+        self.token_stream.reverse()
+        self.token_stream = self.transform_tokens(self.token_stream)
+        self.parse_token_stream()
+
+        return
 #
 #   MAIN
 #
@@ -199,25 +170,7 @@ def p_error(t):
 def main():
 
     test_data = open(sys.argv[1]).read()
-
-    # test the lexer
-    lexer = lex.lex()
-    lexer.input(test_data)
-    token_list = []
-    while True:
-        tok = lexer.token()
-        if not tok:
-            break
-        #print(tok)
-        token_list.append(tok)
-
-    pdb.set_trace()
-
-    # test the parser
-    parser = yacc.yacc(write_tables=False, debug=True)
-    res = parser.parse(test_data, lexer=lex.lex(), debug=True)
-
-    pdb.set_trace()
+    scanner = PdfScanner(test_data)
 
     return
 
