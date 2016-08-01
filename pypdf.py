@@ -1,10 +1,13 @@
 import os
 import sys
 import copy
+import ast
 from ply import lex
 from ply import yacc
 import pdb
 import StringIO
+import pprint
+import string
 
 #
 #   SCANNER
@@ -67,6 +70,10 @@ class PdfScanner():
             r'[0-9]+(\.)?([0-9]+)?'
             return t
 
+        def t_error(t):
+            raise Exception("Lexing error")
+            return t
+
         return lex.lex()
 
     #
@@ -86,6 +93,9 @@ class PdfScanner():
 
     def handle_generic(self, token):
         return token
+
+    def handle_key_r(self, token):
+        return Node({ 'type' : 'reference', 'children' : [self.token_stack.pop(),self.token_stack.pop()] })
 
     def handle_gtgt(self, token):
         return Node({ 'type' : 'dictionary', 'children' : self.pop_until('ltlt') })
@@ -170,13 +180,17 @@ class Node():
             setattr(self, 'value', None)
 
     def __str__(self):
-        if self.value:
+        is_printable = lambda s : all(c in string.printable for c in s)
+        if self.value and is_printable(self.value):
             return '<PDF_Node-{0} {1}>'.format(self.type, str(self.value)[:10])
         else:
             return '<PDF_Node-{0}>'.format(self.type)
 
     def __repr__(self):
         return self.__str__()
+
+    def pprint(self):
+        print(PDFTreePrinter(self))
 
 #
 #   TREE TRAVERSAL, IN THE STYLE OF AST
@@ -185,30 +199,50 @@ class Node():
 
 class PdfTreeVisitor():
     def visit_generic(self, node):
-        for child in node.children:
-            try:
-                handler = getattr(self, 'visit_{0}'.format(child.type))
-            except AttributeError:
-                handler = self.visit_generic
+        if hasattr(node, 'children'):
+            for child in node.children:
+                try:
+                    handler = getattr(self, 'visit_{0}'.format(child.type))
+                except AttributeError:
+                    handler = self.visit_generic
 
-            handler(child)
+                handler(child)
 
     def visit(self, tree):
         return self.visit_generic(tree)
 
-#
-#   MAIN
-#
+class PdfTreeTransformer():
+    def visit_generic(self, node):
+        children = []
+        if hasattr(node, 'children'):
+            for child in node.children:
+                try:
+                    handler = getattr(self, 'visit_{0}'.format(child.type))
+                except AttributeError:
+                    handler = self.visit_generic
 
-# want to deflate streams?
+                newchild = handler(child)
+                if newchild != None:
+                    children.append(newchild)
+
+            node.children = children
+        return node
+
+    def visit(self, tree):
+        return self.visit_generic(tree)
+
 class StreamIterator(PdfTreeVisitor):
+    '''For deflating (not crossing) the streams'''
     def visit_stream(self, node):
         raise NotImplementedError
         pass
 
-# second pass to assign values to /id:value pairs
 class IDKeyValuePacker(PdfTreeVisitor):
+    '''Second pass visitor to assign values to /id:value pairs'''
     def visit_dictionary(self, node):
+
+        self.visit_generic(node)
+
         new_children = []
         old_children = copy.deepcopy(node.children)
         old_children.reverse()
@@ -221,13 +255,15 @@ class IDKeyValuePacker(PdfTreeVisitor):
             if tok.type == 'id':
                 value = old_children.pop()
                 tok.children = [ value ]
-
+                assert len(tok.children) == 1
             new_children.append(tok)
 
         node.children = new_children
+
         pass
 
 class PDFTreePrinter(PdfTreeVisitor):
+    '''Printable trees'''
     def __init__(self, tree):
         self.sio = StringIO.StringIO()
         self.depth = 0
@@ -238,15 +274,53 @@ class PDFTreePrinter(PdfTreeVisitor):
         return self.sio.getvalue()
 
     def visit_generic(self, node):
-        self.sio.write('{0}{1}\n'.format('  '*self.depth, str(node)))
+        self.sio.write('{0}{1}\n'.format('  '*self.depth, pprint.pformat(node).replace('\n','\n'+'  '*self.depth)))
         self.depth += 1
         PdfTreeVisitor.visit_generic(self, node)
         self.depth -= 1
+
+class PDFTreeNativeTypes(PdfTreeTransformer):
+    '''If we want to deal in native python types instead of Node classes'''
+
+    def visit_number(self, node):
+        return ast.literal_eval(node.value)
+
+    def visit_array(self, node):
+        self.visit_generic(node)
+        return node.children
+
+    def visit_bool(self, node):
+        if node.value == 'false':
+            return False
+        elif node.value == 'true':
+            return True
+        else:
+            raise Exception("Unrecognized bool. There are only 10.")
+
+    def visit_dictionary(self, node):
+        self.visit_generic(node)
+
+        retd = {}
+
+        for item in node.children:
+            assert item.type == 'id', "expected ID in dictionary"
+            assert item.value[0] == '/', "IDs must begin with fslash"
+            assert len(item.children) == 1, "ids may only have one child"
+            retd[item.value[1:]] = item.children[0]
+
+        return retd
+
+#
+#   MAIN
+#
 
 def main():
 
     test_data = open(sys.argv[1]).read()
     scanner = PdfScanner(test_data)
+
+    native_tree = PDFTreeNativeTypes()
+    native_tree.visit(scanner.tree)
 
     printable = PDFTreePrinter(scanner.tree)
     print(printable)
