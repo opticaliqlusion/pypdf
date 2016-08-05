@@ -75,19 +75,15 @@ class PdfScanner():
             return t
 
         def t_COMMENT(t):
-            r'%[\x00-\xFF]+?'
-            return t
-
-        def t_XREF_TERM(t):
-            r'[nf]'
+            r'%[\x00-\xFF]+?\n'
             return t
 
         def t_KEY_R(t):
-            r'R'
+            r'R^[A-Za-z0-9]'
             return t
 
         def t_STREAM(t):
-            r'stream[\x00-\xFF]*endstream'
+            r'stream[\x00-\xFF]+?endstream'
             return t
 
         def t_HEADER(t):
@@ -95,7 +91,11 @@ class PdfScanner():
             return t
 
         def t_ID(t):
-            r'/[A-Za-z0-9,_+\-\:\'\x2e\\#@]+'
+            r'/[A-Za-z0-9~*,_+\-\:\'\x2e\\#@]+'
+            return t
+
+        def t_XREF_TERM(t):
+            r'[nf]\x20'
             return t
 
         def t_NUMBER(t):
@@ -103,12 +103,12 @@ class PdfScanner():
             return t
 
         def t_TEXT(t):
-            r'[A-Za-z0-9,_+\-\:\'\x2e\\#@]+'
+            r'[A-Za-z0-9=?~/,_+\-\:\'\x2e\\#@\{\}]+'
             return t
 
-        def t_error(t):
-            pdb.set_trace()
-            return t
+        #def t_error(t):
+        #    pdb.set_trace()
+        #    return t
 
         return lex.lex()
 
@@ -120,7 +120,7 @@ class PdfScanner():
         children = []
         while True:
             tok = self.token_stack.pop()
-            print("popped "+str(tok))
+            print("POPPED:"+str(tok))
             if tok.type == target_token:
                 break
             else:
@@ -140,7 +140,6 @@ class PdfScanner():
         return Node({ 'type' : 'array', 'children' : self.pop_until('lbracket') })
 
     def handle_rparen(self, token):
-        print("stack:"+str(self.token_stack))
         return Node({ 'type' : 'string', 'children' : self.pop_until('lparen') })
 
     def handle_xref_term(self, token):
@@ -160,7 +159,7 @@ class PdfScanner():
     def get_token(self):
 
         tok = self.token_stream.pop()
-
+        print("GOT TOKEN:"+str(tok))
         try:
             res = getattr(self,'handle_{0}'.format(tok.type))(tok)
         except AttributeError:
@@ -278,26 +277,6 @@ class PdfTreeTransformer():
     def visit(self, tree):
         return self.visit_generic(tree)
 
-class StreamIterator(PdfTreeTransformer):
-    '''For deflating (not crossing) the streams'''
-
-    def visit_obj(self, node):
-
-        try:
-            if node.children[0]['Filter'].value=='/FlateDecode':
-                stream = node.children[1].value
-                node.children[1].value = zlib.decompress(stream[8:-11])
-                import magic
-                val = node.children[1].value
-                print(magic.Magic().id_buffer(val) + ":" + val[:10])
-        except KeyError:
-            pass
-        except:
-            #print("Object may not have been a dictionary")
-            pass
-
-        pass
-
 class IDKeyValuePacker(PdfTreeVisitor):
     '''Second pass visitor to assign values to /id:value pairs'''
     def visit_dictionary(self, node):
@@ -391,32 +370,12 @@ class PDFTreeNativeTypes(PdfTreeTransformer):
                 assert item.value[0] == '/', "IDs must begin with fslash"
                 assert len(item.children) == 1, "ids may only have one child"
                 retd[item.value[1:]] = item.children[0]
-            except:
-                pdb.set_trace()
+            except Exception, e:
+                #pdb.set_trace()
+                raise e
                 pass
 
         return retd
-
-#
-#   EXAMPLE MAIN
-#
-
-def main():
-
-    test_data = open(sys.argv[1]).read()
-    scanner = PdfScanner(test_data)
-
-    native_tree = PDFTreeNativeTypes()
-    native_tree.visit(scanner.tree)
-
-    printable = PDFTreePrinter(scanner.tree)
-    print(printable)
-
-    pdb.set_trace()
-
-    StreamIterator().visit(scanner.tree)
-
-    return
 
 if __name__ == "__main__":
     main()
