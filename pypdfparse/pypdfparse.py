@@ -1,3 +1,7 @@
+from __future__ import print_function
+from builtins import bytes
+from builtins import str
+from builtins import object
 import os
 import sys
 import copy
@@ -46,7 +50,7 @@ tokens = (
    #'SPACE',
 )
 
-class PdfScanner():
+class PdfScanner(object):
 
 
     def pdf_lexer(self):
@@ -244,9 +248,9 @@ class PdfScanner():
 
         return
 
-class Node():
+class Node(object):
     def __init__(self, attributes):
-        for k in attributes.keys():
+        for k in list(attributes.keys()):
             setattr(self, k, attributes[k])
 
         # some defaults
@@ -277,7 +281,7 @@ class Node():
 #   you cant always get what you want
 #
 
-class PdfTreeVisitor():
+class PdfTreeVisitor(object):
     def visit_generic(self, node):
         if hasattr(node, 'children'):
             for child in node.children:
@@ -291,7 +295,7 @@ class PdfTreeVisitor():
     def visit(self, tree):
         return self.visit_generic(tree)
 
-class PdfTreeTransformer():
+class PdfTreeTransformer(object):
     def visit_generic(self, node):
         children = []
         if hasattr(node, 'children'):
@@ -339,16 +343,17 @@ class IDKeyValuePacker(PdfTreeVisitor):
 class PDFTreePrinter(PdfTreeVisitor):
     '''Printable trees'''
     def __init__(self, tree):
-        self.sio = io.StringIO()
+        self.sio = io.BytesIO()
         self.depth = 0
 
         self.visit(tree)
 
     def __str__(self):
-        return self.sio.getvalue()
+        return self.sio.getvalue().decode('UTF-8')
 
     def visit_generic(self, node):
-        self.sio.write('{0}{1}\n'.format('  '*self.depth, pprint.pformat(node).replace('\n','\n'+'  '*self.depth)))
+        data = bytes('{0}{1}\n'.format('  '*self.depth, pprint.pformat(node).replace('\n','\n'+'  '*self.depth)), encoding='UTF-8')
+        self.sio.write(data)
         self.depth += 1
         PdfTreeVisitor.visit_generic(self, node)
         self.depth -= 1

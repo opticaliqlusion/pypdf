@@ -14,8 +14,10 @@ class PDFStreamIterator(PdfTreeVisitor):
         PdfTreeVisitor.visit_generic(self, node)
 
 def main():
-    test_data = ''.join([chr(i) for i in open(sys.argv[1], "rb").read()])
-    pdb.set_trace()
+    test_data = open(sys.argv[1], "rb").read()
+    if type(test_data) != type(""):
+        test_data = ''.join([chr(i) for i in test_data])
+
     scanner = PdfScanner(test_data)
 
     printable = PDFTreePrinter(scanner.tree)
