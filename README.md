@@ -30,5 +30,9 @@ class StreamIterator(PdfTreeVisitor):
 StreamIterator().visit(tree)
 ```
 
+### Deep Inspection
+
+`pypdfparse` is intended to be used for deep inspection, usually inspecting PDFs for malware or inspecting streams. The package's `example.py` sample implementation inspects each of the file's streams, decompressing and noting their file type, if possible.
+
 [1]: http://www.adobe.com/content/dam/Adobe/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf
 
