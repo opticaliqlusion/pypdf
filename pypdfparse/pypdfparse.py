@@ -5,7 +5,7 @@ import ast
 from ply import lex
 from ply import yacc
 import pdb
-import StringIO
+import io
 import pprint
 import string
 import zlib
@@ -18,7 +18,7 @@ tokens = (
    'BOOL',
    'NUMBER',
    'LPAREN',
-   'RPAREN',
+   #'RPAREN',
    'ID',
    'HEX',
    'LTLT',
@@ -35,24 +35,64 @@ tokens = (
    'XREF',
    'TRAILER',
    'TEXT',
+   'string_LPAREN',
+   'LPAREN',
+   'RPAREN',
+   'almost_anything',
+   'escape',
+   'anything',
+   'EOF',
    #'EOL',
    #'SPACE',
 )
 
 class PdfScanner():
 
+
     def pdf_lexer(self):
+
+        states = (
+            ('string', 'exclusive'),
+            ('escape', 'exclusive'),
+        )
+
         t_ignore  = ' \t\r\n'
 
-        #t_SPACE     = r'\x20'
         t_BOOL      = r'(true|false)'
         t_HEX       = r'\<[0-9A-F]*\>'
-        t_LPAREN    = r'\('
-        t_RPAREN    = r'\)'
+
         t_LBRACKET  = r'\['
         t_RBRACKET  = r'\]'
         t_LTLT      = r'\<\<'
         t_GTGT      = r'\>\>'
+
+        def t_EOF(t):
+            r'%%EOF'
+            return t
+
+        def t_LPAREN(t):
+            r'\('
+            t.lexer.push_state('string')
+            return t
+
+        def t_string_almost_anything(t):
+            r'[^\)\\)]+'
+            return t
+
+        def t_string_RPAREN(t):
+            r'\)'
+            t.lexer.pop_state()
+            return t
+
+        def t_string_escape(t):
+            r'\\'
+            t.lexer.push_state('escape')
+            return t
+
+        def t_escape_anything(t):
+            r'.'
+            t.lexer.pop_state()
+            return t
 
         def t_OBJ(t):
             r'obj'
@@ -95,7 +135,7 @@ class PdfScanner():
             return t
 
         def t_XREF_TERM(t):
-            r'[nf]\x20'
+            r'[nf][\r|\n|\r\n]'
             return t
 
         def t_NUMBER(t):
@@ -105,10 +145,6 @@ class PdfScanner():
         def t_TEXT(t):
             r'[A-Za-z0-9=?~/,_+\-\:\'\x2e\\#@\{\}]+'
             return t
-
-        #def t_error(t):
-        #    pdb.set_trace()
-        #    return t
 
         return lex.lex()
 
@@ -120,7 +156,6 @@ class PdfScanner():
         children = []
         while True:
             tok = self.token_stack.pop()
-            print("POPPED:"+str(tok))
             if tok.type == target_token:
                 break
             else:
@@ -159,7 +194,6 @@ class PdfScanner():
     def get_token(self):
 
         tok = self.token_stream.pop()
-        print("GOT TOKEN:"+str(tok))
         try:
             res = getattr(self,'handle_{0}'.format(tok.type))(tok)
         except AttributeError:
@@ -212,8 +246,8 @@ class PdfScanner():
 
 class Node():
     def __init__(self, attributes):
-        for k,v in attributes.iteritems():
-            setattr(self, k, v)
+        for k in attributes.keys():
+            setattr(self, k, attributes[k])
 
         # some defaults
         if not hasattr(self, 'children'):
@@ -305,7 +339,7 @@ class IDKeyValuePacker(PdfTreeVisitor):
 class PDFTreePrinter(PdfTreeVisitor):
     '''Printable trees'''
     def __init__(self, tree):
-        self.sio = StringIO.StringIO()
+        self.sio = io.StringIO()
         self.depth = 0
 
         self.visit(tree)
@@ -370,12 +404,9 @@ class PDFTreeNativeTypes(PdfTreeTransformer):
                 assert item.value[0] == '/', "IDs must begin with fslash"
                 assert len(item.children) == 1, "ids may only have one child"
                 retd[item.value[1:]] = item.children[0]
-            except Exception, e:
+            except Exception as e:
                 #pdb.set_trace()
                 raise e
                 pass
 
         return retd
-
-if __name__ == "__main__":
-    main()
