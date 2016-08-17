@@ -1,7 +1,4 @@
 from __future__ import print_function
-from builtins import bytes
-from builtins import str
-from builtins import object
 import os
 import sys
 import copy
@@ -63,7 +60,7 @@ class PdfScanner(object):
         t_ignore  = ' \t\r\n'
 
         t_BOOL      = r'(true|false)'
-        t_HEX       = r'\<[0-9A-F]*\>'
+        t_HEX       = r'\<[0-9A-Fa-f]*\>'
 
         t_LBRACKET  = r'\['
         t_RBRACKET  = r'\]'
@@ -352,7 +349,7 @@ class PDFTreePrinter(PdfTreeVisitor):
         return self.sio.getvalue().decode('UTF-8')
 
     def visit_generic(self, node):
-        data = bytes('{0}{1}\n'.format('  '*self.depth, pprint.pformat(node).replace('\n','\n'+'  '*self.depth)), encoding='UTF-8')
+        data = bytes('{0}{1}\n'.format('  '*self.depth, pprint.pformat(node).replace('\n','\n'+'  '*self.depth)))
         self.sio.write(data)
         self.depth += 1
         PdfTreeVisitor.visit_generic(self, node)
